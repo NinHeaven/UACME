@@ -60,6 +60,9 @@
     <ClCompile Include="..\Shared\windefend.c">
       <Filter>shared</Filter>
     </ClCompile>
+    <ClCompile Include="..\Shared\ultohex.c">
+      <Filter>minirtl</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="version.rc">
@@ -78,9 +81,6 @@
     </ClInclude>
     <ClInclude Include="..\Shared\util.h">
       <Filter>shared</Filter>
-    </ClInclude>
-    <ClInclude Include="..\Shared\lsa.h">
-      <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\Shared\shared.h">
       <Filter>shared</Filter>

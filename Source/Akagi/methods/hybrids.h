@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2015 - 2018
+*  (C) COPYRIGHT AUTHORS, 2015 - 2019
 *
 *  TITLE:       HYBRIDS.H
 *
-*  VERSION:     2.90
+*  VERSION:     3.17
 *
-*  DATE:        10 July 2018
+*  DATE:        18 Mar 2019
 *
 *  Prototypes and definitions for hybrid methods.
 *
@@ -28,53 +28,75 @@ typedef DWORD(WINAPI *pfnWaitForSingleObject)(
 typedef BOOL(WINAPI *pfnCloseHandle)(
     HANDLE hObject);
 
-typedef struct _ELOAD_PARAMETERS_SIREFEF {
-    WCHAR                   szVerb[MAX_PATH];
-    WCHAR                   szTargetApp[MAX_PATH * 2];
-    pfnShellExecuteExW      xShellExecuteExW;
-    pfnWaitForSingleObject  xWaitForSingleObject;
-    pfnCloseHandle          xCloseHandle;
-} ELOAD_PARAMETERS_SIREFEF, *PELOAD_PARAMETERS_SIREFEF;
+typedef HRESULT(WINAPI *pfnCoInitialize)(
+    LPVOID pvReserved);
 
-BOOL ucmAvrfMethod(
+typedef HRESULT(WINAPI *pfnCoGetObject)(
+    LPCWSTR pszName,
+    BIND_OPTS *pBindOptions,
+    REFIID riid,
+    void **ppv);
+
+typedef HRESULT(WINAPI *pfnSHCreateItemFromParsingName)(
+    PCWSTR pszPath, 
+    IBindCtx *pbc, 
+    REFIID riid, 
+    void **ppv);
+
+typedef void(WINAPI *pfnCoUninitialize)(
+    VOID);
+
+typedef NTSTATUS (NTAPI *pfnRtlExitUserThread)(
+    _In_ NTSTATUS ExitStatus);
+
+typedef struct tagLOAD_PARAMETERS_SIREFEF {
+    WCHAR                   szVerb[10];
+    WCHAR                   szTargetApp[MAX_PATH + 1];
+    pfnShellExecuteExW      ShellExecuteExW;
+    pfnWaitForSingleObject  WaitForSingleObject;
+    pfnCloseHandle          CloseHandle;
+    pfnRtlExitUserThread    RtlExitUserThread;
+} LOAD_PARAMETERS_SIREFEF, *PLOAD_PARAMETERS_SIREFEF;
+
+NTSTATUS ucmAvrfMethod(
     _In_ PVOID AvrfDll,
     _In_ DWORD AvrfDllSize);
 
-BOOL ucmWinSATMethod(
+NTSTATUS ucmWinSATMethod(
     _In_ LPWSTR lpTargetDll,
     _In_ PVOID ProxyDll,
     _In_ DWORD ProxyDllSize,
     _In_ BOOL UseWusa);
 
-BOOL ucmMMCMethod(
+NTSTATUS ucmMMCMethod(
     _In_ UCM_METHOD Method,
     _In_ LPWSTR lpTargetDll,
     _In_ PVOID ProxyDll,
     _In_ DWORD ProxyDllSize);
 
-BOOL ucmSirefefMethod(
+NTSTATUS ucmSirefefMethod(
     _In_ PVOID ProxyDll,
     _In_ DWORD ProxyDllSize);
 
-BOOL ucmGenericAutoelevation(
+NTSTATUS ucmGenericAutoelevation(
     _In_ LPWSTR lpTargetApp,
     _In_ LPWSTR lpTargetDll,
     _In_ PVOID ProxyDll,
     _In_ DWORD ProxyDllSize);
 
-BOOL ucmGWX(
+NTSTATUS ucmGWX(
     _In_ PVOID ProxyDll,
     _In_ DWORD ProxyDllSize);
 
-BOOL ucmAutoElevateManifest(
+NTSTATUS ucmAutoElevateManifest(
     _In_ PVOID ProxyDll,
     _In_ DWORD ProxyDllSize);
 
-BOOL ucmInetMgrMethod(
+NTSTATUS ucmInetMgrMethod(
     _In_ PVOID ProxyDll,
     _In_ DWORD ProxyDllSize);
 
-BOOL ucmSXSMethod(
+NTSTATUS ucmSXSMethod(
     _In_ PVOID ProxyDll,
     _In_ DWORD ProxyDllSize,
     _In_opt_ LPWSTR lpTargetDirectory,
@@ -82,42 +104,71 @@ BOOL ucmSXSMethod(
     _In_opt_ LPWSTR lpLaunchApplication,
     _In_ BOOL bConsentItself);
 
-BOOL ucmSetupAkagiLink(
+NTSTATUS ucmDismMethod(
+    _In_ PVOID ProxyDll,
+    _In_ DWORD ProxyDllSize);
+
+NTSTATUS ucmWow64LoggerMethod(
+    _In_ PVOID ProxyDll,
+    _In_ DWORD ProxyDllSize);
+
+NTSTATUS ucmUiAccessMethod(
+    _In_ PVOID ProxyDll,
+    _In_ DWORD ProxyDllSize);
+
+NTSTATUS ucmJunctionMethod(
+    _In_ PVOID ProxyDll,
+    _In_ DWORD ProxyDllSize);
+
+NTSTATUS ucmSXSDccwMethod(
+    _In_ PVOID ProxyDll,
+    _In_ DWORD ProxyDllSize);
+
+NTSTATUS ucmCorProfilerMethod(
+    _In_ PVOID ProxyDll,
+    _In_ DWORD ProxyDllSize);
+
+NTSTATUS ucmFwCplLuaMethod(
+    _In_ LPWSTR lpszPayload);
+
+NTSTATUS ucmDccwCOMMethod(
+    _In_ LPWSTR lpszPayload);
+
+NTSTATUS ucmBitlockerRCMethod(
+    _In_ LPWSTR lpszPayload);
+
+NTSTATUS ucmCOMHandlersMethod2(
+    _In_ PVOID ProxyDll,
+    _In_ DWORD ProxyDllSize);
+
+NTSTATUS ucmDateTimeStateWriterMethod(
+    _In_ PVOID ProxyDll,
+    _In_ DWORD ProxyDllSize);
+
+NTSTATUS ucmAcCplAdminMethod(
+    _In_ LPWSTR lpszPayload);
+
+NTSTATUS ucmEgre55Method(
+    _In_ PVOID ProxyDll,
+    _In_ DWORD ProxyDllSize);
+
+//
+// Post execution cleanup routines.
+//
+BOOL ucmMMCMethodCleanup(
+    _In_ UCM_METHOD Method);
+
+BOOL ucmMethodCleanupSingleItemSystem32(
+    LPWSTR lpItemName);
+
+BOOL ucmJunctionMethodCleanup(
     VOID);
 
-BOOL ucmDismMethod(
-    _In_ PVOID ProxyDll,
-    _In_ DWORD ProxyDllSize);
+BOOL ucmSXSDccwMethodCleanup(
+    VOID);
 
-BOOL ucmWow64LoggerMethod(
-    _In_ PVOID ProxyDll,
-    _In_ DWORD ProxyDllSize);
+BOOL ucmSXSMethodCleanup(
+    _In_ BOOL bConsentItself);
 
-BOOL ucmUiAccessMethod(
-    _In_ PVOID ProxyDll,
-    _In_ DWORD ProxyDllSize);
-
-BOOL ucmJunctionMethod(
-    _In_ PVOID ProxyDll,
-    _In_ DWORD ProxyDllSize);
-
-BOOL ucmSXSDccwMethod(
-    _In_ PVOID ProxyDll,
-    _In_ DWORD ProxyDllSize);
-
-BOOL ucmCorProfilerMethod(
-    _In_ PVOID ProxyDll,
-    _In_ DWORD ProxyDllSize);
-
-BOOL ucmFwCplLuaMethod(
-    _In_ LPWSTR lpszPayload);
-
-BOOL ucmDccwCOMMethod(
-    _In_ LPWSTR lpszPayload);
-
-BOOL ucmBitlockerRCMethod(
-    _In_ LPWSTR lpszPayload);
-
-BOOL ucmCOMHandlersMethod2(
-    _In_ PVOID ProxyDll,
-    _In_ DWORD ProxyDllSize);
+BOOL ucmSirefefMethodCleanup(
+    VOID);

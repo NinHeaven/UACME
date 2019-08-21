@@ -1,3 +1,5 @@
+[![Build status](https://ci.appveyor.com/api/projects/status/dvnyciarevyj3vuj?svg=true)](https://ci.appveyor.com/project/hfiref0x/uacme)
+
 # UACMe
 * Defeating Windows User Account Control by abusing built-in Windows AutoElevate backdoor.
 
@@ -40,7 +42,7 @@ Keys (watch debug output with dbgview or similar for more info):
    * Implementation: ucmStandardAutoElevation
    * Works from: Windows 7 (7600)
    * Fixed in: Windows 10 TH2 (10558)
-      * How: side effect of OOBE redesign
+      * How: Side effect of OOBE redesign
 4. Author: Jon Ericson, WinNT/Gootkit, mzH
    * Type: AppCompat
    * Method: RedirectEXE Shim
@@ -202,7 +204,7 @@ Keys (watch debug output with dbgview or similar for more info):
      * Implementation: ucmSXSMethod
      * Works from: Windows 7 (7600)
      * Fixed in: Windows 10 RS3 (16232)
-        * How: sysprep.exe requires MS signed modules to load
+        * How: MitigationPolicy->ProcessImageLoadPolicy->PreferSystem32Images
 22. Author: Leo Davidson derivative
      * Type: Dll Hijack
      * Method: IFileOperation, SxS DotLocal
@@ -270,7 +272,7 @@ Keys (watch debug output with dbgview or similar for more info):
 29. Author: Enigma0x3
      * Type: Shell API
      * Method: Registry key manipulation
-     * Target(s): \system32\sdctl.exe
+     * Target(s): \system32\sdclt.exe
      * Component(s): Attacker defined
      * Implementation: ucmAppPathMethod
      * Works from: Windows 10 TH1 (10240)
@@ -288,7 +290,7 @@ Keys (watch debug output with dbgview or similar for more info):
 31. Author: Enigma0x3
      * Type: Shell API
      * Method: Registry key manipulation
-     * Target(s): \system32\sdctl.exe
+     * Target(s): \system32\sdclt.exe
      * Component(s): Attacker defined
      * Implementation: ucmSdcltIsolatedCommandMethod
      * Works from: Windows 10 TH1 (10240)
@@ -332,7 +334,7 @@ Keys (watch debug output with dbgview or similar for more info):
      * AlwaysNotify compatible, see note
      * Fixed in: Windows 10 RS5 (17686)
         * How: ntoskrnl.exe->SeTokenCanImpersonate additional access token check added
-36. Author: Thomas Vanhoutte
+36. Author: Thomas Vanhoutte aka SandboxEscaper
      * Type: Race condition
      * Method: NTFS reparse point & Dll Hijack
      * Target(s): wusa.exe
@@ -375,8 +377,8 @@ Keys (watch debug output with dbgview or similar for more info):
      * Component(s): Attacker defined
      * Implementation: ucmCOMHandlersMethod
      * Works from: Windows 7 (7600)
-     * Fixed in: unfixed :see_no_evil:
-        * How: -
+     * Fixed in: Windows 10 19H1 (18362)
+        * How: Side effect of Windows changes
 41. Author: Oddvar Moe
      * Type: Elevated COM interface
      * Method: ICMLuaUtil
@@ -393,8 +395,8 @@ Keys (watch debug output with dbgview or similar for more info):
      * Component(s): Attacker defined
      * Implementation: ucmFwCplLuaMethod
      * Works from: Windows 7 (7600)
-     * Fixed in: unfixed :see_no_evil:
-        * How: -
+     * Fixed in: Windows 10 RS4 (17134)
+        * How: Shell API update
 43. Author: Oddvar Moe derivative
      * Type: Elevated COM interface
      * Method: IColorDataProxy, ICMLuaUtil
@@ -438,8 +440,8 @@ Keys (watch debug output with dbgview or similar for more info):
      * Component(s): Attacker defined
      * Implementation: ucmCOMHandlersMethod2
      * Works from: Windows 7 (7600)
-     * Fixed in: unfixed :see_no_evil:
-        * How: -
+     * Fixed in: Windows 10 19H1 (18362)
+        * How: Side effect of Windows changes
 48. Author: deroko
      * Type: Elevated COM interface
      * Method: ISPPLUAObject
@@ -447,18 +449,100 @@ Keys (watch debug output with dbgview or similar for more info):
      * Component(s): Attacker defined
      * Implementation: ucmSPPLUAObjectMethod
      * Works from: Windows 7 (7600)
+     * Fixed in: Windows 10 RS5 (17763)
+        * How: ISPPLUAObject interface method changed 
+49. Author: RinN
+     * Type: Elevated COM interface
+     * Method: ICreateNewLink
+     * Target(s): \system32\TpmInit.exe
+     * Component(s): WbemComn.dll
+     * Implementation: ucmCreateNewLinkMethod
+     * Works from: Windows 7 (7600)
+     * Fixed in: Windows 10 RS1 (14393) 
+        * How: Side effect of consent.exe COMAutoApprovalList introduction
+50. Author: Anonymous
+     * Type: Elevated COM interface
+     * Method: IDateTimeStateWrite, ISPPLUAObject
+     * Target(s): w32time service
+     * Component(s): w32time.dll
+     * Implementation: ucmDateTimeStateWriterMethod
+     * Works from: Windows 7 (7600)
+     * Fixed in: Windows 10 RS5 (17763)
+        * How: Side effect of ISPPLUAObject interface change
+51. Author: bytecode77 derivative
+     * Type: Elevated COM interface
+     * Method: IAccessibilityCplAdmin
+     * Target(s): \system32\rstrui.exe
+     * Component(s): Attacker defined
+     * Implementation: ucmAcCplAdminMethod
+     * Works from: Windows 7 (7600)
+     * Fixed in: Windows 10 RS4 (17134)
+        * How: Shell API update
+52. Author: David Wells
+     * Type: Whitelisted component
+     * Method: AipNormalizePath parsing abuse
+     * Target(s): Attacker defined
+     * Component(s): Attacker defined
+     * Implementation: ucmDirectoryMockMethod
+     * Works from: Windows 7 (7600)
+     * Fixed in: unfixed :see_no_evil:
+        * How: -		
+53. Author: Emeric Nasi
+     * Type: Shell API
+     * Method: Registry key manipulation
+     * Target(s): \system32\sdclt.exe
+     * Component(s): Attacker defined
+     * Implementation: ucmShellDelegateExecuteCommandMethod
+     * Works from: Windows 10 (14393)
      * Fixed in: unfixed :see_no_evil:
         * How: -
+54. Author: egre55
+     * Type: Dll Hijack
+     * Method: Dll path search abuse
+     * Target(s): \syswow64\SystemPropertiesAdvanced.exe and other SystemProperties*.exe
+     * Component(s): \AppData\Local\Microsoft\WindowsApps\srrstr.dll
+     * Implementation: ucmEgre55Method
+     * Works from: Windows 10 (14393)
+     * Fixed in: unfixed :see_no_evil:
+        * How: -
+55. Author: James Forshaw
+     * Type: GUI Hack 
+     * Method: UIPI bypass with token modification
+     * Target(s): \system32\osk.exe, \system32\msconfig.exe
+     * Component(s): Attacker defined
+     * Implementation: ucmTokenModUIAccessMethod
+     * Works from: Windows 7 (7600)
+     * Fixed in: unfixed :see_no_evil:
+        * How: -
+56. Author: Hashim Jawad
+     * Type: Shell API
+     * Method: Registry key manipulation
+     * Target(s): \system32\WSReset.exe
+     * Component(s): Attacker defined
+     * Implementation: ucmShellDelegateExecuteCommandMethod
+     * Works from: Windows 10 (17134)
+     * Fixed in: unfixed :see_no_evil:
+        * How: -
+57. Author: Leo Davidson derivative by Win32/Gapz
+     * Type: Dll Hijack
+     * Method: IFileOperation
+     * Target(s): \system32\sysprep\sysprep.exe
+     * Component(s): unattend.dll
+     * Implementation: ucmStandardAutoElevation
+     * Works from: Windows 7 (7600)
+     * Fixed in: Windows 8.1 (9600)
+        * How: sysprep.exe hardened LoadFrom manifest elements			
 
 Note:
 * Method (6) unavailable in wow64 environment starting from Windows 8;
-* Method (11) implemented in x86-32 version;
-* Method (13) (19) (38) implemented only in x64 version;
+* Method (11) (54) implemented only in x86-32 version;
+* Method (13) (19) (30) (38) (50) implemented only in x64 version;
 * Method (14) require process injection, wow64 unsupported, use x64 version of this tool;
 * Method (26) is still working, however it main advantage was UAC bypass on AlwaysNotify level. Since 15031 it is gone;
 * Method (30) require x64 because it abuses WOW64 subsystem feature;
 * Method (35) AlwaysNotify compatible as there always will be running autoelevated apps or user will have to launch them anyway;
-* Method (38) require internet connection as it executes remote script located at github.com/hfiref0x/Beacon/blob/master/uac/exec.html.
+* Method (38) require internet connection as it executes remote script located at github.com/hfiref0x/Beacon/blob/master/uac/exec.html;
+* Method (55) is not really reliable (as any GUI hacks) and included just for fun.
 
 Run examples:
 * akagi32.exe 1
@@ -478,6 +562,9 @@ Run examples:
 If you wondering why this still exist and work here is the explanation, an official Microsoft WHITEFLAG (including totally incompetent statements as bonus)
 https://blogs.msdn.microsoft.com/oldnewthing/20160816-00/?p=94105
 
+# Windows 10 support and testing policy
+* EOL'ed versions of Windows 10 are not supported and therefore not tested (at moment of writing EOL'ed Windows 10 versions are: TH1 (10240), TH2 (10586));
+* Insider builds are not supported as methods may be fixed there.
 
 # Protection
 * Account without administrative privileges.
@@ -494,6 +581,19 @@ https://blogs.msdn.microsoft.com/oldnewthing/20160816-00/?p=94105
 
 * UACMe comes with full source code, written in C with some parts written in C#;
 * In order to build from source you need Microsoft Visual Studio 2013/2015 U2 and later versions.
+
+## Instructions
+
+* Select Platform ToolSet first for project in solution you want to build (Project->Properties->General): 
+  * v120 for Visual Studio 2013;
+  * v140 for Visual Studio 2015; 
+  * v141 for Visual Studio 2017.
+* For v140 and above set Target Platform Version (Project->Properties->General):
+  * If v140 then select 8.1 (Note that Windows 8.1 SDK must be installed);
+  * If v141 then select 10.0.17134.0 (Note that Windows 10.0.17134 SDK must be installed). 
+  
+* Note that Fujinami module built with .NET Framework 3.0 (this is requirement for it work), so .NET Framework 3.0 must be installed if you want to build this module.
+* Can be built with SDK 8.1/10.17134/10.17763.
 
 # References
 
@@ -517,13 +617,14 @@ https://blogs.msdn.microsoft.com/oldnewthing/20160816-00/?p=94105
    3. https://tyranidslair.blogspot.ru/2017/05/reading-your-way-around-uac-part-3.html 
 * Research on CMSTP.exe, https://msitpros.com/?p=3960
 * UAC bypass via elevated .NET applications, https://offsec.provadys.com/UAC-bypass-dotnet.html
+* UAC Bypass by Mocking Trusted Directories, https://medium.com/tenable-techblog/uac-bypass-by-mocking-trusted-directories-24a96675f6e
+* Yet another sdclt UAC bypass, http://blog.sevagas.com/?Yet-another-sdclt-UAC-bypass
+* UAC Bypass via SystemPropertiesAdvanced.exe and DLL Hijacking, https://egre55.github.io/system-properties-uac-bypass/
+* Accessing Access Tokens for UIAccess, https://tyranidslair.blogspot.com/2019/02/accessing-access-tokens-for-uiaccess.html
+* Fileless UAC Bypass in Windows Store Binary, https://www.activecyber.us/1/post/2019/03/windows-uac-bypass.html
 
 # Authors
 
-(c) 2014 - 2018 UACMe Project
-
-# 3rd party components usage
-
-MinHook - The Minimalistic x86/x64 API Hooking Library for Windows, https://github.com/TsudaKageyu/minhook
+(c) 2014 - 2019 UACMe Project
 
 [![HitCount](http://hits.dwyl.io/hfiref0x/uacme.svg)](http://hits.dwyl.io/hfiref0x/uacme)

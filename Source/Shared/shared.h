@@ -2,11 +2,11 @@
 *
 *  (C) COPYRIGHT AUTHORS, 2018
 *
-*  TITLE:       SAHRED.H
+*  TITLE:       SHARED.H
 *
-*  VERSION:     2.90
+*  VERSION:     3.10
 *
-*  DATE:        10 July 2018
+*  DATE:        18 Nov 2018
 *
 *  Shared include header file.
 *
@@ -19,17 +19,27 @@
 #pragma once
 
 //disable nonmeaningful warnings.
+#pragma warning(push)
 #pragma warning(disable: 4005) // macro redefinition
 #pragma warning(disable: 4055) // %s : from data pointer %s to function pointer %s
-#pragma warning(disable: 4152) // nonstandard extension, function/data pointer conversion in expression
 #pragma warning(disable: 4201) // nonstandard extension used : nameless struct/union
-#pragma warning(disable: 6102) // Using %s from failed function call at line %u
 
 #include <Windows.h>
 #include <ntstatus.h>
 #include "ntos.h"
-#include "lsa.h"
+
+#define _NTDEF_
+#include <ntsecapi.h>
+#undef _NTDEF_
+
 #include "minirtl.h"
 #include "_filename.h"
 #include "util.h"
 #include "windefend.h"
+#include "consts.h"
+
+#if defined(__cplusplus)
+#include <malloc.h>
+#endif
+
+#pragma warning(pop)

@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2017 - 2018
+*  (C) COPYRIGHT AUTHORS, 2017 - 2019
 *
 *  TITLE:       TEST.C
 *
-*  VERSION:     2.90
+*  VERSION:     3.18
 *
-*  DATE:        10 July 2018
+*  DATE:        30 Mar 2019
 *
 * THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF
 * ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED
@@ -31,5 +31,6 @@ BOOL ucmTestRoutine(
     UNREFERENCED_PARAMETER(PayloadCode);
     UNREFERENCED_PARAMETER(PayloadSize);
 
+    SetEvent(g_ctx->SharedContext.hCompletionEvent);
     return TRUE;
 }

